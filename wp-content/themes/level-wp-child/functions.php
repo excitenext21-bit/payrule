@@ -23,3 +23,15 @@ function ui_child_enqueue_styles() {
         );
     }
 }
+
+// Automatically enforce clean SEO-friendly permalinks (/%postname%/) without requiring manual WP-admin configuration
+add_action( 'init', function() {
+    if ( get_option( 'permalink_structure' ) !== '/%postname%/' ) {
+        global $wp_rewrite;
+        update_option( 'permalink_structure', '/%postname%/' );
+        if ( is_object( $wp_rewrite ) ) {
+            $wp_rewrite->set_permalink_structure( '/%postname%/' );
+            $wp_rewrite->flush_rules( false );
+        }
+    }
+} );
