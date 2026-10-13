@@ -4,8 +4,8 @@ Thumbs.db
 desktop.ini
 
 # WordPress temp & cache
-public_html/wp-content/cache/
-public_html/wp-content/upgrade/
+wp-content/cache/
+wp-content/upgrade/
 *.log
 error_log
 
@@ -15,7 +15,7 @@ error_log
 *.tar.gz
 database/*.sql
 database/*.php
-*.png
+/*.png
 
 # Allow specific compressed database dumps
 !database/payrule-db.sql.gz

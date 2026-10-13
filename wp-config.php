@@ -1,6 +1,6 @@
 <?php
 define( 'DISABLE_WP_CRON', true );
-define( 'WP_CACHE', true );
+define( 'WP_CACHE', false );
 define( 'LITESPEED_DISABLE_ALL', true );
 define( 'AUTOMATIC_UPDATER_DISABLED', true );
 
@@ -13,16 +13,14 @@ if ( ( isset( $_SERVER['HTTP_HOST'] ) && ( strpos( $_SERVER['HTTP_HOST'], 'local
     define( 'WP_HOME', 'http://localhost/payrule' );
     define( 'WP_SITEURL', 'http://localhost/payrule' );
     define( 'FORCE_SSL_ADMIN', false );
-    define( 'FORCE_SSL_LOGIN', false );
 } else {
     define( 'DB_NAME', 'u314929967_1A88m' );
     define( 'DB_USER', 'u314929967_2qx08' );
     define( 'DB_PASSWORD', 'WEsyjtpJIt' );
-    define( 'DB_HOST', '127.0.0.1' );
+    define( 'DB_HOST', 'localhost' );
     define( 'WP_HOME', 'https://payrule.in' );
     define( 'WP_SITEURL', 'https://payrule.in' );
     define( 'FORCE_SSL_ADMIN', true );
-    define( 'FORCE_SSL_LOGIN', true );
 }
 
 define( 'DB_CHARSET', 'utf8' );
