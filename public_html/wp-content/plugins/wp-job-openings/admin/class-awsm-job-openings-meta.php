@@ -1,0 +1,493 @@
+<?php
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
+class AWSM_Job_Openings_Meta {
+	private static $instance = null;
+
+	protected $cpath = null;
+
+	public function __construct() {
+		$this->cpath = untrailingslashit( plugin_dir_path( __FILE__ ) );
+		add_action( 'add_meta_boxes', array( $this, 'awsm_register_meta_boxes' ) );
+		add_action( 'admin_menu', array( $this, 'remove_meta_boxes' ) );
+		add_action( 'admin_enqueue_scripts', array( $this, 'dequeue_autosave' ) );
+		if ( isset( $_GET['awsm_action'] ) ) {
+			if ( $_GET['awsm_action'] === 'download_resume' ) {
+				add_action( 'plugins_loaded', array( $this, 'download_resume_handle' ) );
+			} elseif ( $_GET['awsm_action'] === 'download_file' ) {
+				add_action( 'plugins_loaded', array( $this, 'download_file_handle' ) );
+			}
+		}
+		add_action( 'awsm_job_applicant_profile_details_resume_preview', array( $this, 'docs_viewer_handle' ) );
+		add_filter( 'post_row_actions', array( $this, 'awsm_job_application_row_actions_label' ), 10, 2 );
+		add_filter( 'wp_untrash_post_status', array( $this, 'awsm_job_application_restore_post_to_previous_status' ), 10, 3 );
+		add_filter( 'post_class', array( $this, 'awsm_add_unread_application_class' ), 10, 3 );
+		add_action( 'quick_edit_custom_box', array( $this, 'awsm_job_openings_main_quick_edit_fields' ), 10, 2 );
+		add_action( 'wp_ajax_awsm_job_status_panel', array( $this, 'ajax_job_status_panel' ) );
+	}
+
+
+	public static function init() {
+		if ( is_null( self::$instance ) ) {
+			self::$instance = new self();
+		}
+		return self::$instance;
+	}
+
+	public function awsm_register_meta_boxes() {
+		global $action, $post;
+
+		// awsm_job_save_post() (and Pro Pack's own save handler) gate their
+		// classic-editor $_POST save handling behind this single shared
+		// nonce. It used to only be emitted by the classic Job Expiry
+		// metabox, which the block editor no longer renders — and other
+		// candidate metaboxes (Job Specifications, Job Status) are only
+		// conditionally registered, so this dedicated, always-registered,
+		// visually hidden metabox is the one guaranteed source for it,
+		// regardless of editor mode or plugin configuration.
+		add_meta_box( 'awsm-job-nonce-meta', 'awsm-job-nonce-meta', array( $this, 'awsm_job_nonce_meta_handler' ), 'awsm_job_openings', 'side', 'low' );
+
+		// use_block_editor_for_post() alone is not enough to detect a genuine
+		// classic-editor context: WordPress core hard-codes it to return false
+		// whenever $_GET['meta-box-loader'] is set (the block editor's own
+		// internal request for re-rendering legacy meta boxes), which fires on
+		// every block-editor save regardless of Classic Editor. Registering
+		// these classic metaboxes during that request would put their (stale,
+		// since the block editor never touches these classic fields) input
+		// values into the legacy form the block editor resubmits afterward —
+		// which is exactly what was wiping the REST-saved Job Expiry values on
+		// every save. See use_block_editor_for_post() in wp-includes/post.php.
+		$is_classic_editor_context = ! use_block_editor_for_post( $post ) && ! isset( $_GET['meta-box-loader'] );
+
+		if ( $action === 'edit' ) {
+			// The block editor gets a native Gutenberg panel (see
+			// AWSM_Job_Openings::enqueue_job_status_panel()) instead of this classic
+			// metabox; keep the classic version only for the Classic Editor fallback.
+			if ( $is_classic_editor_context ) {
+				add_meta_box( 'awsm-status-meta', esc_html__( 'Job Status', 'wp-job-openings' ), array( $this, 'awsm_job_status' ), 'awsm_job_openings', 'side', 'high' );
+			}
+			add_meta_box( 'awsm-status-meta-applicant', esc_html__( 'Job Details', 'wp-job-openings' ), array( $this, 'awsm_job_status' ), 'awsm_job_application', 'side', 'low' );
+		}
+
+		$awsm_filters = get_option( 'awsm_jobs_filter' );
+		if ( ! empty( $awsm_filters ) ) {
+			add_meta_box( 'awsm-job-meta', esc_html__( 'Job Specifications', 'wp-job-openings' ), array( $this, 'awsm_job_handle' ), 'awsm_job_openings', 'normal', 'high' );
+		}
+
+		// The block editor gets a native Gutenberg panel (see AWSM_Job_Openings::enqueue_job_expiry_panel())
+		// instead of this classic metabox; keep the classic version only for the Classic Editor fallback.
+		if ( $is_classic_editor_context ) {
+			add_meta_box( 'awsm-expiry-meta', esc_html__( 'Job Expiry', 'wp-job-openings' ), array( $this, 'awsm_job_expiration' ), 'awsm_job_openings', 'side', 'low' );
+		}
+
+		add_meta_box( 'awsm-job-details-meta', esc_html__( 'Applicant Details', 'wp-job-openings' ), array( $this, 'awsm_job_application_handle' ), 'awsm_job_application', 'normal', 'high' );
+
+		if ( isset( $post ) && $post->post_type === 'awsm_job_application' ) {
+			$awsm_attachment_id = get_post_meta( $post->ID, 'awsm_attachment_id', true );
+			if ( ! empty( $awsm_attachment_id ) ) {
+				$attachment_post = get_post( $awsm_attachment_id );
+				if ( $attachment_post && $attachment_post->post_type === 'attachment' ) {
+					add_meta_box( 'awsm-job-resume-preview', esc_html__( 'Resume Preview', 'wp-job-openings' ), array( $this, 'awsm_job_application_attachment_preview' ), 'awsm_job_application', 'normal', 'high' );
+				}
+			}
+		}
+
+		if ( ! class_exists( 'AWSM_Job_Openings_Pro_Pack' ) ) {
+			add_meta_box( 'awsm-application-actions-meta', esc_html__( 'Actions', 'wp-job-openings' ), array( $this, 'application_actions_meta_handler' ), 'awsm_job_application', 'side', 'high' );
+			add_meta_box( 'awsm-get-the-pro-pack-meta', esc_html__( 'Upgrade to HireZoot Pro', 'wp-job-openings' ), array( $this, 'get_pro_meta_handler' ), 'awsm_job_application', 'side', 'low' );
+		}
+	}
+
+	public function awsm_job_nonce_meta_handler() {
+		wp_nonce_field( 'awsm_save_post_meta', 'awsm_jobs_posts_nonce' );
+	}
+
+	public function awsm_job_status( $post ) {
+		include $this->cpath . '/templates/meta/job-status.php';
+	}
+
+	/**
+	 * Serves the Job Status metabox markup to the block editor's "Job Status"
+	 * sidebar panel (see blocks/src/job-status-panel), so it renders through
+	 * the exact same template/filters (awsm_job_status_mb_init,
+	 * awsm_job_status_mb_data_rows) as the classic metabox instead of a
+	 * separate re-implementation.
+	 */
+	public function ajax_job_status_panel() {
+		if ( ! isset( $_POST['nonce'] ) || ! wp_verify_nonce( sanitize_key( $_POST['nonce'] ), 'awsm_job_status_panel' ) ) {
+			wp_send_json_error( array( 'message' => esc_html__( 'Security check failed.', 'wp-job-openings' ) ), 403 );
+		}
+
+		$post_id  = isset( $_POST['post_id'] ) ? absint( $_POST['post_id'] ) : 0;
+		$job_post = get_post( $post_id );
+
+		if ( ! $job_post || $job_post->post_type !== 'awsm_job_openings' || ! current_user_can( 'edit_post', $post_id ) ) {
+			wp_send_json_error( array( 'message' => esc_html__( 'You are not allowed to view this.', 'wp-job-openings' ) ), 403 );
+		}
+
+		// job-status.php resolves the job ID via get_the_ID(), which reads the
+		// global $post — already set up by WP on the classic metabox's post
+		// edit screen, but not here on a standalone admin-ajax request.
+		global $post;
+		$post = $job_post; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
+		setup_postdata( $post );
+
+		ob_start();
+		$this->awsm_job_status( $post );
+		$html = ob_get_clean();
+
+		wp_reset_postdata();
+
+		wp_send_json_success( array( 'html' => $html ) );
+	}
+
+	public function awsm_job_handle( $post ) {
+		include $this->cpath . '/templates/meta/job-specifications.php';
+	}
+
+	public function awsm_job_expiration( $post ) {
+		include $this->cpath . '/templates/meta/job-expiry.php';
+	}
+
+	public function awsm_job_application_handle( $post ) {
+		include $this->cpath . '/templates/meta/applicant-single.php';
+	}
+
+	public function is_main_applicant_viewed( $post_id ) {
+		$is_viewed = get_post_meta( $post_id, 'awsm_application_viewed', true ) === '1';
+		if ( ! $is_viewed ) {
+			update_post_meta( $post_id, 'awsm_application_viewed', '1' );
+		}
+		return $is_viewed;
+	}
+
+	public function awsm_job_application_attachment_preview( $post ) {
+		$awsm_attachment_id = get_post_meta( $post->ID, 'awsm_attachment_id', true );
+		if ( ! empty( $awsm_attachment_id ) && is_string( $awsm_attachment_id ) && strlen( $awsm_attachment_id ) > 0 ) {
+			include $this->cpath . '/templates/meta/resume-preview.php';
+		}
+	}
+
+	public function application_actions_meta_handler( $post ) {
+		include $this->cpath . '/templates/meta/application-actions.php';
+	}
+
+	public function get_pro_meta_handler() {
+		include $this->cpath . '/templates/meta/get-pro.php';
+	}
+
+	public function remove_meta_boxes() {
+		remove_meta_box( 'slugdiv', 'awsm_job_application', 'normal' );
+		remove_meta_box( 'submitdiv', 'awsm_job_application', 'side' );
+	}
+
+	public function dequeue_autosave( $hook ) {
+		global $post;
+		$autosave_disabled_post_types = array( 'awsm_job_openings', 'awsm_job_application' );
+		if ( in_array( $hook, array( 'post.php', 'post-new.php' ), true ) && isset( $post ) && in_array( $post->post_type, $autosave_disabled_post_types, true ) ) {
+			wp_dequeue_script( 'autosave' );
+		}
+	}
+
+	public static function set_applicant_single_view_tab() {
+		$tab_list = array(
+			'profile' => esc_html__( 'Profile', 'wp-job-openings' ),
+		);
+		return apply_filters( 'awsm_jobs_opening_applicant_single_tab_list', $tab_list );
+	}
+
+	public static function get_applicant_single_view_content( $post_id, $attachment_id ) {
+		$tab_content = array();
+		return apply_filters( 'awsm_jobs_opening_applicant_single_view_content', $tab_content, $post_id );
+	}
+
+	public function get_applicant_meta_details_list( $post_id, $preset_values = array() ) {
+		$list         = '';
+		$name         = '';
+		$email        = '';
+		$meta_details = array();
+
+		$applicant_meta = apply_filters(
+			'awsm_jobs_applicant_meta',
+			array(
+				'awsm_applicant_name'   => array(
+					'label' => __( 'Name', 'wp-job-openings' ),
+				),
+				'awsm_applicant_email'  => array(
+					'label' => __( 'Email Address', 'wp-job-openings' ),
+				),
+				'awsm_applicant_phone'  => array(
+					'label' => __( 'Phone Number', 'wp-job-openings' ),
+				),
+				'awsm_applicant_letter' => array(
+					'label'      => __( 'Bio', 'wp-job-openings' ),
+					'multi-line' => true,
+				),
+
+			),
+			$post_id
+		);
+		if ( ! empty( $applicant_meta ) && is_array( $applicant_meta ) ) {
+			foreach ( $applicant_meta as $meta_key => $meta_options ) {
+				$visible    = isset( $meta_options['visible'] ) ? $meta_options['visible'] : true;
+				$multi_line = isset( $meta_options['multi-line'] ) ? $meta_options['multi-line'] : false;
+
+				if ( $visible ) {
+					$label = isset( $meta_options['label'] ) ? $meta_options['label'] : '';
+					$value = '';
+
+					if ( ! empty( $preset_values ) && isset( $preset_values[ $meta_key ] ) ) {
+						$value = $preset_values[ $meta_key ];
+					} elseif ( isset( $meta_options['value'] ) ) {
+						$value = $meta_options['value'];
+					} else {
+						$value = get_post_meta( $post_id, $meta_key, true );
+					}
+
+					// Skip if the value is empty
+					if ( empty( $value ) ) {
+						continue;
+					}
+
+					// Separate the name
+					if ( $meta_key === 'awsm_applicant_name' ) {
+						$name = $value;
+						continue; // Skip adding the name to the list
+					} elseif ( $meta_key === 'awsm_applicant_email' ) {
+						$email = $value;
+					}
+
+					$meta_content = '';
+					if ( isset( $meta_options['type'] ) && ! empty( $value ) ) {
+						if ( $meta_options['type'] === 'file' ) {
+							$meta_content = sprintf(
+								'<a href="%2$s" rel="nofollow"><strong>%1$s</strong></a>',
+								esc_html__( 'Download File', 'wp-job-openings' ),
+								$this->get_attached_file_download_url( $value, 'file', $label )
+							);
+						} elseif ( $meta_options['type'] === 'url' ) {
+							$meta_content = sprintf(
+								'<a href="%s" target="_blank" rel="nofollow">%s</a>',
+								esc_url( $value ),
+								esc_html( $value )
+							);
+						}
+					} else {
+						if ( is_array( $value ) ) {
+							$value = implode( ', ', array_map( 'sanitize_text_field', $value ) );
+						}
+
+						$meta_content = empty( $multi_line ) ? esc_html( $value ) : wp_kses(
+							wpautop( $value ),
+							array(
+								'p'  => array(),
+								'br' => array(),
+							)
+						);
+					}
+					$meta_content = apply_filters( 'awsm_jobs_applicant_meta_content', $meta_content, $meta_key, $applicant_meta, $post_id );
+					if ( ! empty( $meta_content ) || is_numeric( $meta_content ) ) {
+						$is_meta_group = isset( $meta_options['group'] ) ? $meta_options['group'] : false;
+						$meta_content  = ! $is_meta_group ? '<span>' . $meta_content . '</span>' : $meta_content;
+						if ( isset( $meta_options['type'] ) ) {
+							$field_type = $meta_options['type'];
+						} elseif ( $multi_line ) {
+							$field_type = 'textarea';
+						} elseif ( $meta_key === 'awsm_applicant_email' ) {
+							$field_type = 'email';
+						} elseif ( $meta_key === 'awsm_applicant_phone' ) {
+							$field_type = 'tel';
+						} else {
+							$field_type = 'text';
+						}
+						$li_class = 'awsm-field-type-' . sanitize_html_class( $field_type );
+						$list    .= sprintf( '<li class="%3$s"><label>%1$s</label>%2$s</li>', esc_html( $label ), '<div class="' . $meta_key . '">' . $meta_content . '</div>', esc_attr( $li_class ) );
+					}
+					// Add to meta details array
+					$meta_details[ $meta_key ] = $value;
+				}
+			}
+		}
+
+		$list = apply_filters( 'awsm_jobs_applicant_meta_details_list', $list, $applicant_meta, $post_id );
+		return array(
+			'name'         => $name,
+			'email'        => $email,
+			'list'         => $list,
+			'meta_details' => $meta_details,
+		);
+	}
+
+	public function get_attached_file_details( $attachment_id ) {
+		$details         = array();
+		$attachment_file = get_attached_file( $attachment_id );
+		if ( ! empty( $attachment_file ) ) {
+			$file_type    = wp_check_filetype( $attachment_file );
+			$file_size    = filesize( $attachment_file );
+			$display_size = size_format( $file_size );
+			$details      = array(
+				'file_name' => $attachment_file,
+				'file_type' => $file_type,
+				'file_size' => array(
+					'size'    => $file_size,
+					'display' => $display_size,
+				),
+			);
+		}
+		return $details;
+	}
+
+	public function get_attached_file_download_url( $attachment_id, $type = 'resume', $label = '' ) {
+		$query_vars = array(
+			'awsm_id'     => $attachment_id,
+			'awsm_nonce'  => wp_create_nonce( 'awsm_' . $type . '_download' ),
+			'awsm_action' => 'download_' . $type,
+		);
+		if ( ! empty( $label ) ) {
+			$query_vars['attachment_label'] = sanitize_title( $label );
+		}
+		$download_url = add_query_arg( $query_vars, get_edit_post_link() );
+		return esc_url( $download_url );
+	}
+
+	public function attached_file_download_handler( $type, $suffix ) {
+		if ( current_user_can( 'edit_others_applications' ) && isset( $_GET['awsm_id'] ) && isset( $_GET['awsm_nonce'] ) ) {
+			if ( ! wp_verify_nonce( $_GET['awsm_nonce'], 'awsm_' . $type . '_download' ) ) {
+				wp_die( esc_html__( 'Error occurred!', 'wp-job-openings' ) );
+			}
+			$attachment_id = intval( $_GET['awsm_id'] );
+			if ( ! $attachment_id ) {
+				wp_die( esc_html__( 'Invalid id.', 'wp-job-openings' ) );
+			}
+			$file_details = $this->get_attached_file_details( $attachment_id );
+
+			if ( ! empty( $file_details ) ) {
+				$file_name = sanitize_title( get_the_title( $attachment_id ) . $suffix );
+
+				if ( ob_get_level() ) {
+					ob_end_clean();
+				}
+
+				header( 'Content-Description: File Transfer' );
+				header( 'Content-Type: ' . $file_details['file_type']['type'] );
+				header( 'Content-Disposition: attachment; filename="' . $file_name . '.' . $file_details['file_type']['ext'] . '"' );
+				header( 'Expires: 0' );
+				header( 'Cache-Control: must-revalidate' );
+				header( 'Pragma: public' );
+
+				if ( ! empty( $file_details['file_size']['size'] ) ) {
+					header( 'Content-Length: ' . $file_details['file_size']['size'] );
+				}
+
+				if ( is_readable( $file_details['file_name'] ) ) {
+					readfile( $file_details['file_name'] );
+				} else {
+					wp_die( esc_html__( 'File is not readable.', 'wp-job-openings' ) );
+				}
+				exit;
+			} else {
+				wp_die( esc_html__( 'File not found!', 'wp-job-openings' ) );
+			}
+		}
+	}
+
+	public function download_resume_handle() {
+		$this->attached_file_download_handler( 'resume', '_' . __( 'resume', 'wp-job-openings' ) );
+	}
+
+	public function download_file_handle() {
+		$suffix = isset( $_GET['attachment_label'] ) ? '-' . $_GET['attachment_label'] : '';
+		$this->attached_file_download_handler( 'file', $suffix );
+	}
+
+	public function application_delete_action( $application_id ) {
+		?>
+			<div id="delete-action">
+				<?php
+				if ( current_user_can( 'delete_post', $application_id ) ) {
+					if ( ! EMPTY_TRASH_DAYS ) {
+						$delete_text = __( 'Delete Permanently', 'default' );
+					} else {
+						$delete_text = __( 'Move to Trash', 'default' );
+					}
+					printf( '<a class="submitdelete deletion" href="%2$s">%1$s</a>', esc_html( $delete_text ), esc_url( get_delete_post_link( $application_id ) ) );
+				}
+				?>
+			</div>
+		<?php
+	}
+	public function awsm_job_application_row_actions_label( $actions, $post ) {
+		if ( $post->post_type === 'awsm_job_application' ) {
+			if ( isset( $actions['edit'] ) ) {
+				$actions['edit'] = str_replace( __( 'Edit', 'wp-job-openings' ), __( 'View', 'wp-job-openings' ), $actions['edit'] );
+			}
+		}
+		return $actions;
+	}
+
+	public function awsm_job_application_restore_post_to_previous_status( $new_status, $post_id, $previous_status ) {
+		$post = get_post( $post_id );
+
+		if ( $post && $post->post_type === 'awsm_job_application' ) {
+			if ( ! empty( $previous_status ) && $previous_status !== 'trash' ) {
+				return $previous_status;
+			}
+
+			return 'publish';
+		}
+
+		return $new_status;
+	}
+
+	public function awsm_add_unread_application_class( $classes, $class, $post_id ) {
+		if ( get_post_type( $post_id ) === 'awsm_job_application' ) {
+			$post_status = get_post_status( $post_id );
+
+			if ( $post_status === 'publish' ) {
+				// Only highlight if explicitly marked as unread ('0').
+				// Old applications (no meta) are treated as viewed — no highlight.
+				if ( get_post_meta( $post_id, 'awsm_application_viewed', true ) === '0' ) {
+					$classes[] = 'awsm-new-job';
+				}
+			}
+		}
+
+		return $classes;
+	}
+
+	public function awsm_job_openings_main_quick_edit_fields( $column_name, $post_type ) {
+		if ( $post_type !== 'awsm_job_openings' || $column_name !== 'awsm_job_expiry' ) {
+			return;
+		}
+
+		$awsm_job_expiry  = get_post_meta( get_the_ID(), 'awsm_job_expiry', true );
+		$display_list     = get_post_meta( get_the_ID(), 'awsm_exp_list_display', true );
+		$set_expiry       = get_post_meta( get_the_ID(), 'awsm_set_exp_list', true ); // Retrieve the expiry checkbox state
+		$date_format      = get_awsm_jobs_date_format( 'expiry-admin' );
+		$expiry_timestamp = ! empty( $awsm_job_expiry ) ? strtotime( $awsm_job_expiry ) : false;
+		?>
+		<fieldset class="inline-edit-col-right">
+			<div class="inline-edit-col">
+				<label>
+					<input type="checkbox" name="awsm_set_exp_list" id="awsm-job-expiry-edit" value="set_listing">
+					<?php esc_html_e( 'Set expiry for listing', 'wp-job-openings' ); ?>
+				</label>
+
+				<div id="awsm-job-expiry-fields" style="display: none; margin-top: 10px;">
+					<label>
+						<input type="text" class="awsm-jobs-datepicker" name="awsm_job_expiry_text_field" placeholder="<?php echo esc_attr( $date_format ); ?>" value="<?php echo ( false !== $expiry_timestamp ) ? esc_attr( date_i18n( $date_format, $expiry_timestamp ) ) : ''; ?>" />
+						<input type="hidden" id="awsm-jobs-datepicker-alt" name="awsm_job_expiry" value="<?php echo esc_attr( false !== $expiry_timestamp ? $awsm_job_expiry : '' ); ?>" />
+					</label>
+					<br>
+					<label>
+						<input type="checkbox" name="awsm_exp_list_display" id="awsm-job-expiry-display" value="list_display">
+						<?php esc_html_e( 'Display expiry date', 'wp-job-openings' ); ?>
+					</label>
+				</div>
+			</div>
+		</fieldset>
+		<?php
+	}
+}

@@ -1,0 +1,16 @@
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# WordPress temp & cache
+public_html/wp-content/cache/
+public_html/wp-content/upgrade/
+*.log
+error_log
+
+# Large archives
+*.zip
+*.rar
+*.tar.gz
+!database/payrule-db.sql.gz
