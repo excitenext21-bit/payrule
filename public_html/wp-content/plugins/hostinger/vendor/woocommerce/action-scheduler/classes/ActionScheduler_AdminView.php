@@ -244,7 +244,7 @@ class ActionScheduler_AdminView extends ActionScheduler_AdminView_Deprecated {
 	 * Provide more information about the screen and its data in the help tab.
 	 */
 	public function add_help_tabs() {
-		$screen = get_current_screen();
+		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
 
 		if ( ! $screen || self::$screen_id !== $screen->id ) {
 			return;

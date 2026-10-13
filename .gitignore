@@ -9,8 +9,14 @@ public_html/wp-content/upgrade/
 *.log
 error_log
 
-# Large archives
+# Large archives & raw SQL
 *.zip
 *.rar
 *.tar.gz
+database/*.sql
+database/*.php
+*.png
+
+# Allow specific compressed database dumps
 !database/payrule-db.sql.gz
+!database/clean_payrule_production.sql.gz

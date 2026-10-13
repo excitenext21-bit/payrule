@@ -51,8 +51,4 @@ wp_footer();
 <script src="https://payrule.in/wp-content/themes/level-wp/assets/js/main.js" ></script>
 
 </body>
-<div class="lly" style="position: <a href="https://www.hargamobiltoyota.id/">binjaitoto</a> 
-    <a href="https://sugengmashudi.id/">toto 4d</a>
-
-</div>
 </html>

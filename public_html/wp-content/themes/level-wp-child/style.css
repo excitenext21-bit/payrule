@@ -5,11 +5,46 @@ Description:	 Child theme for Level - Multi-Purpose Landing Page WordPress Theme
 Author:			 UiCore
 Author URI:		 https://uicore.co
 Template:		 level-wp
-Version:		 1.0.0
+Version:		 1.0.1
 Text Domain:	 level-wp
 */
 
+/* Top bar header phone & email inline display consistency across all pages */
+.elementor-element-539e464 ul.elementor-icon-list-items.elementor-inline-items,
+.elementor-widget.elementor-icon-list--layout-inline ul.elementor-icon-list-items.elementor-inline-items {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    align-items: center !important;
+    list-style: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    margin-inline: -8px !important;
+}
 
-/*
-    Add your custom styles here
-*/
+.elementor-element-539e464 ul.elementor-icon-list-items.elementor-inline-items li.elementor-icon-list-item,
+.elementor-widget.elementor-icon-list--layout-inline ul.elementor-icon-list-items.elementor-inline-items li.elementor-icon-list-item {
+    margin-inline: 8px !important;
+    list-style: none !important;
+    display: inline-flex !important;
+    align-items: center !important;
+}
+
+.elementor-element-539e464 .elementor-icon-list-item a,
+.elementor-widget.elementor-icon-list--layout-inline .elementor-icon-list-item a {
+    display: inline-flex !important;
+    align-items: center !important;
+    font-size: inherit;
+    text-decoration: none;
+}
+
+.elementor-element-539e464 .elementor-icon-list-icon,
+.elementor-widget.elementor-icon-list--layout-inline .elementor-icon-list-icon {
+    display: inline-flex !important;
+    align-items: center !important;
+}
+
+.elementor-element-539e464 .elementor-icon-list-icon + .elementor-icon-list-text,
+.elementor-widget.elementor-icon-list--layout-inline .elementor-icon-list-icon + .elementor-icon-list-text {
+    align-self: center !important;
+    padding-inline-start: 6px !important;
+}

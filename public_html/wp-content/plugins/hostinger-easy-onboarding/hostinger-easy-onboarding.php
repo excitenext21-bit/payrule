@@ -47,8 +47,9 @@ if ( ! defined( 'HOSTINGER_EASY_ONBOARDING_WP_CONFIG_PATH' ) ) {
 }
 
 if ( ! defined( 'HOSTINGER_EASY_ONBOARDING_WP_TOKEN' ) ) {
-	$hostinger_dir_parts        = explode( '/', __DIR__ );
-	$hostinger_server_root_path = '/' . $hostinger_dir_parts[1] . '/' . $hostinger_dir_parts[2];
+	$normalized_dir = str_replace( '\\', '/', __DIR__ );
+	$hostinger_dir_parts = array_values( array_filter( explode( '/', $normalized_dir ) ) );
+	$hostinger_server_root_path = ( count( $hostinger_dir_parts ) >= 2 ) ? '/' . $hostinger_dir_parts[0] . '/' . $hostinger_dir_parts[1] : '';
 	define( 'HOSTINGER_EASY_ONBOARDING_WP_TOKEN', $hostinger_server_root_path . '/.api_token' );
 }
 
