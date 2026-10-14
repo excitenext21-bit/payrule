@@ -3,7 +3,7 @@
 Options -Indexes
 
 # 2. Block sensitive files, configs, and backups
-<FilesMatch "(?i)(wp-config\.php|\.htaccess|\.htpasswd|\.git|\.env|\.ini|readme\.html|license\.txt|\.log|\.sql|\.bak|\.swp)$">
+<FilesMatch "(?i)(wp-config\.php|\.htaccess|\.htpasswd|\.git|\.env|\.ini|readme\.html|license\.txt|\.log|\.sql|\.gz|\.tar|\.zip|\.bak|\.swp)$">
     <IfModule mod_authz_core.c>
         Require all denied
     </IfModule>
